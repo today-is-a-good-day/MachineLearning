@@ -1,0 +1,129 @@
+---
+title: "Machine Learning Course Project"
+author: "Jessica Peterka-Bonetta"
+date: "24. May 2015"
+output: html_document
+---
+
+# Summary
+
+# Exploratory Data Analysis
+A first look at the data reveals a total number ob 160 variables, consisting of some general information (username, timestamp), a large number of variables representing different measurements and their evaluations (e.g. "roll_belt", amplitude_roll_belt" or "total_accel_arm") as well as information about the class of exercise performed. The latter consists of five different ways to perform the weight lifting exercise, where class A corresponds to the exercise beeing performed correctly and class B to E correspond to common mistakes. 
+
+The data is divided into two sets: a training set with aprroximatively 20.000 observations and a test set with 20 observations. The test set is reserved for testing purposes and will only be used once a model has been picked. 
+
+```{r, echo=FALSE}
+setwd("~/Desktop/coursera-r-class/MachineLearning")
+library(caret)
+library(lattice)
+library(ggplot2)
+library(doMC)
+library(parallel)
+library(foreach)
+library(iterators)
+library(randomForest)
+set.seed(1234)
+
+# Download datasets
+fileUrl1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileUrl2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileUrl1, destfile = "pml_training.csv", method = "curl")
+download.file(fileUrl2, destfile = "pml_test.csv", method = "curl")
+
+# Read in datasets
+training <- read.csv("pml_training.csv")
+test <- read.csv("pml_test.csv")
+```
+
+ 
+# Data partitioning
+
+Luckily, the training set with which the prediction model will be trained is large enough to take subsamples of it for cross validation purposes. The training set is beeing partitioned into a sub training set with 60% of the observations and a sub testing set with 40% of the observations. 
+```{r}
+inTrain <- createDataPartition(y = training$classe, p = 0.6, list = FALSE)
+sub_training <- training[inTrain, ]
+sub_testing <- training[-inTrain, ]
+dim(sub_training)
+dim(sub_testing)
+```
+
+ 
+# Data cleaning
+
+No prediction without variance - this is true for the outcome variable and the predictor variables alike. The first data cleaning measure therefor consists of leaving out variables with variances close to zero.  
+```{r}
+# Identify near zero variance variables
+sub_trainingNZV <- nearZeroVar(sub_training)
+# Create subset of sub_training with non-nrz variables only
+sub_training <- sub_training[, -sub_trainingNZV]
+# Apply filter to sub_testing and test datasets
+sub_testing <- sub_testing[, -sub_trainingNZV]
+# Check for number of observations left
+dim(sub_training) ; dim(sub_testing)
+```
+
+The next step is to check for the proportion of missing values for each columns. 
+It seems variables have either very high percentage of NA (approx. 98%), which disqualifies them as predictors, or no NA at all. Therefore, variables with more than 10% of NA are filtered out of the dataset. Note that for the sub_testing dataset the percentage of NA in the sub_training dataset is used to filter out the variables with too many NA. Also, the first column "X" representing the row name is beeing removed from the data. 
+
+```{r}
+# Compute percentage of NA for each variable in the sub_training data set
+apply(sub_training, 2, function(col)sum(is.na(col))/length(col))
+# Filter out variables with high NA percentage
+sub_training <- sub_training[lapply(sub_training, function(x) sum(is.na(x)) / length(x) ) < 0.1 ]
+variables_names <- colnames(sub_training)
+sub_testing <- sub_testing[variables_names]
+# Remove first column X and second column user_name
+sub_training_clean <- sub_training[, 3:ncol(sub_training)]
+sub_testing_clean <- sub_testing[, 3:ncol(sub_training)]
+```
+
+After cleaning data as described above, 58 variables are left. 
+ 
+ 
+# Model building
+
+The random forests approach is choosen to train a prediction model with cross validation.
+
+```{r}
+registerDoMC(3)
+modelFit <- train(classe ~., data = sub_training_clean, method = "rf")
+modelFit
+```
+ 
+## Out of bag error
+
+Let´s take a closer look at the out of bag error for the final model:
+```{r}
+modelFit$finalModel
+```
+The out of bag error rate for the final model is 0.15%. 
+ 
+## Model accuracy
+
+The final model trained with the random forests method is tested on the sub_testing dataset to get an idea of its accuracy. 
+```{r}
+prediction1 <- predict(modelFit, sub_testing_clean)
+confusionMatrix(prediction1, sub_testing_clean$classe)
+```
+The accuracy is as high as 0.9991, which means that only 0.0009% of the out-of-sample cases are misclassified by the model. 
+ 
+# Write up
+
+First, predictions are made for the test dataset. 
+```{r}
+prediction2 <- predict(modelFit, test)
+```
+
+This is the code used to generate files for upload. 
+```{r}
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+pml_write_files(prediction2)
+```
