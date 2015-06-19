@@ -84,7 +84,7 @@ After cleaning data as described above, 58 variables are left.
 
 The random forests approach is choosen to train a prediction model with cross validation.
 
-```{r}
+```{r, cache=TRUE}
 registerDoMC(3)
 modelFit <- train(classe ~., data = sub_training_clean, method = "rf")
 modelFit
